@@ -50,6 +50,17 @@ public:
 
 	PktDef();
 	PktDef(char* rawData);
-	void setCMD(CmdType cmd);
+	void setCMD(CMDType cmd);
+	void setBodyData(char* data, int size);
+	void setPktCount(int);
+	CMDType getCMD();
+	bool getAck();
+	int getLength();
+	char* getBodyData();
+	int getPktCount();
+	bool checkCRC(char* buffer, int size);
+	void calcCRC();				//counting number of 1s
+	char* genPacket();
+	~PktDef();
 
 };
