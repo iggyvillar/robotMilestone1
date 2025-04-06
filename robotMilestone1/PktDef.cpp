@@ -11,34 +11,33 @@ PktDef::PktDef() {
 	cmdPacket.header.cmdFlags.sleep = 0;
 	cmdPacket.header.cmdFlags.status = 0;
 	cmdPacket.header.cmdFlags.padding = 0;
+	cmdPacket.length = 0;
 	cmdPacket.Data = nullptr;
 	cmdPacket.CRC = 0;
 	RawBuffer = nullptr;
-
 }
-
 
 //overloaded PktDef constructor
 PktDef::PktDef(char* rawData) {
 	//copy header
 	memcpy(&cmdPacket.header, rawData, HEADERSIZE);
 
-	//length from the packet body
-	uint16_t length = *reinterpret_cast<uint16_t*>(rawData + HEADERSIZE);
+	//get length (now 1 byte)
+	cmdPacket.length = rawData[HEADERSIZE];
 
-	// allocate and copy data if length > 0
-	if (length > 0) {
-		cmdPacket.Data = new char[length];
-		memcpy(cmdPacket.Data, rawData + HEADERSIZE + 2, length);
-	} else {
+	//allocate and copy data if length > 0
+	if (cmdPacket.length > 0) {
+		cmdPacket.Data = new char[cmdPacket.length];
+		memcpy(cmdPacket.Data, rawData + HEADERSIZE + 1, cmdPacket.length);
+	}
+	else {
 		cmdPacket.Data = nullptr;
 	}
 
-	// crc from the end of the packet
-	cmdPacket.CRC = rawData[HEADERSIZE + 2 + length];
+	//crc from the end of the packet
+	cmdPacket.CRC = rawData[HEADERSIZE + 1 + cmdPacket.length];
 	RawBuffer = nullptr;
 }
-
 
 //destructor
 PktDef::~PktDef() {
@@ -50,26 +49,23 @@ PktDef::~PktDef() {
 	}
 }
 
-
 //setCMDType function
 void PktDef::setCMD(CMDType cmd) {
-
 	//reset flags
 	cmdPacket.header.cmdFlags.drive = 0;
 	cmdPacket.header.cmdFlags.status = 0;
 	cmdPacket.header.cmdFlags.sleep = 0;
 
 	switch (cmd) {
-		case CMDType::DRIVE:
-			cmdPacket.header.cmdFlags.drive = 1;
-			break;
-		case CMDType::SLEEP:
-			cmdPacket.header.cmdFlags.sleep = 1;
-			break;
-		case CMDType::RESPONSE:
-			cmdPacket.header.cmdFlags.status = 1;
-			break;
-
+	case CMDType::DRIVE:
+		cmdPacket.header.cmdFlags.drive = 1;
+		break;
+	case CMDType::SLEEP:
+		cmdPacket.header.cmdFlags.sleep = 1;
+		break;
+	case CMDType::RESPONSE:
+		cmdPacket.header.cmdFlags.status = 1;
+		break;
 	}
 }
 
@@ -80,14 +76,13 @@ void PktDef::setBodyData(char* data, int size) {
 	}
 	cmdPacket.Data = new char[size];
 	memcpy(cmdPacket.Data, data, size);
-
+	cmdPacket.length = size;
 }
 
 //setPktcount
 void PktDef::setPktCount(int size) {
 	cmdPacket.header.PktCount = size;
 }
-
 
 CMDType PktDef::getCMD() {
 	if (cmdPacket.header.cmdFlags.drive) return CMDType::DRIVE;
@@ -103,7 +98,7 @@ bool PktDef::getAck() {
 
 //getlength
 int PktDef::getLength() {
-	return cmdPacket.Data != nullptr ? strlen(cmdPacket.Data) : 0;
+	return cmdPacket.length;
 }
 
 //getbody
@@ -111,12 +106,10 @@ char* PktDef::getBodyData() {
 	return cmdPacket.Data;
 }
 
-
 //get Pkt count
 int PktDef::getPktCount() {
 	return cmdPacket.header.PktCount;
 }
-
 
 bool PktDef::checkCRC(char* buffer, int size) {
 	char calculatedCRC = 0;
@@ -129,21 +122,54 @@ bool PktDef::checkCRC(char* buffer, int size) {
 
 void PktDef::calcCRC() {
 	char calculatedCRC = 0;
-	
-	// calculate crc for header
+
+	//calculate crc for header
 	std::bitset<8> headerBits(cmdPacket.header.PktCount);
 	calculatedCRC += headerBits.count();
 	std::bitset<8> flagsBits(*reinterpret_cast<uint8_t*>(&cmdPacket.header.cmdFlags));
 	calculatedCRC += flagsBits.count();
-	
-	// calculate crc for data if it applicable
+
+	//add length to crc
+	std::bitset<8> lengthBits(cmdPacket.length);
+	calculatedCRC += lengthBits.count();
+
+	//calculate crc for data if it exists
 	if (cmdPacket.Data != nullptr) {
-		for (int i = 0; i < getLength(); i++) {
+		for (int i = 0; i < cmdPacket.length; i++) {
 			std::bitset<8> dataBits(cmdPacket.Data[i]);
 			calculatedCRC += dataBits.count();
 		}
 	}
-	
+
 	cmdPacket.CRC = calculatedCRC;
+}
+
+char* PktDef::genPacket() {
+	if (RawBuffer != nullptr) {
+		delete[] RawBuffer;
+	}
+
+	//calculate total size
+	int totalSize = HEADERSIZE + 1 + cmdPacket.length + 1; // Header + Length + Data + CRC
+
+	//allocate buffer
+	RawBuffer = new char[totalSize];
+
+	//copy header
+	memcpy(RawBuffer, &cmdPacket.header, HEADERSIZE);
+
+	//copy length
+	RawBuffer[HEADERSIZE] = cmdPacket.length;
+
+	//copy data if it exists
+	if (cmdPacket.Data != nullptr) {
+		memcpy(RawBuffer + HEADERSIZE + 1, cmdPacket.Data, cmdPacket.length);
+	}
+
+	//calculate and copy crc
+	calcCRC();
+	RawBuffer[totalSize - 1] = cmdPacket.CRC;
+
+	return RawBuffer;
 }
 
